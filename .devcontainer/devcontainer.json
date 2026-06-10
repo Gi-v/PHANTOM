@@ -2,47 +2,27 @@
   "name": "PHANTOM Dev",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "version": "latest",
-      "dockerDashComposeVersion": "v2"
-    },
-    "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.22"
-    },
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.12"
-    },
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "version": "latest",
-      "helm": "latest",
-      "minikube": "none"
-    },
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
-    }
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/python:1": {"version": "3.12"},
+    "ghcr.io/devcontainers/features/go:1": {"version": "1.22"},
+    "ghcr.io/devcontainers/features/node:1": {"version": "20"}
+  },
+  "forwardPorts": [3000, 3001, 8000, 8001, 9090, 3100, 3200, 4317, 4318],
+  "portsAttributes": {
+    "3000": {"label": "Grafana", "onAutoForward": "openBrowser"},
+    "3001": {"label": "PHANTOM Dashboard", "onAutoForward": "openBrowser"},
+    "8001": {"label": "ML API", "onAutoForward": "notify"},
+    "8000": {"label": "Graph Builder", "onAutoForward": "notify"},
+    "9090": {"label": "Prometheus", "onAutoForward": "notify"}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "forwardPorts": [3000, 3001, 8000, 8001, 9090],
-  "portsAttributes": {
-    "3000": {"label": "Grafana", "onAutoForward": "notify"},
-    "3001": {"label": "PHANTOM Dashboard", "onAutoForward": "notify"},
-    "8000": {"label": "Graph Builder API", "onAutoForward": "silent"},
-    "8001": {"label": "ML Service API", "onAutoForward": "silent"},
-    "9090": {"label": "Prometheus", "onAutoForward": "silent"}
-  },
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "golang.go",
-        "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "ms-azuretools.vscode-docker",
-        "hashicorp.terraform"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python3",
-        "go.toolsManagement.autoUpdate": true
-      }
+        "ms-azuretools.vscode-docker"
+      ]
     }
   }
 }
