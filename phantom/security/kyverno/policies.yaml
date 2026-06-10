@@ -1,0 +1,52 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: enforce
+  rules:
+  - name: check-resource-limits
+    match:
+      resources: {kinds: [Pod], namespaces: [phantom]}
+    validate:
+      message: "Resource limits required in phantom namespace."
+      pattern:
+        spec:
+          containers:
+          - resources:
+              limits: {cpu: "?*", memory: "?*"}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privilege-escalation
+spec:
+  validationFailureAction: enforce
+  rules:
+  - name: no-privesc
+    match:
+      resources: {kinds: [Pod], namespaces: [phantom]}
+    validate:
+      message: "Privilege escalation not allowed."
+      pattern:
+        spec:
+          containers:
+          - securityContext:
+              allowPrivilegeEscalation: false
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-trivy-annotation
+spec:
+  validationFailureAction: enforce
+  rules:
+  - name: check-scan
+    match:
+      resources: {kinds: [Deployment], namespaces: [phantom]}
+    validate:
+      message: "Deployment must have trivy-scan/passed=true annotation."
+      pattern:
+        metadata:
+          annotations:
+            trivy-scan/passed: "true"

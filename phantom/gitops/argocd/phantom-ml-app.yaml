@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: phantom-ml
+  namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: phantom-alerts
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/phantom-io/phantom
+    targetRevision: main
+    path: kubernetes/helm/phantom-ml
+    helm:
+      values: |
+        image:
+          tag: latest
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2
+            memory: 4Gi
+        autoscaling:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: phantom
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: phantom-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: phantom-controller
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["phantom.io"]
+  resources: ["predictivescalers", "predictivescalers/status"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: phantom-controller
+subjects:
+- kind: ServiceAccount
+  name: phantom-controller
+  namespace: phantom
+roleRef:
+  kind: ClusterRole
+  name: phantom-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phantom-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: phantom-controller}
+  template:
+    metadata:
+      labels: {app: phantom-controller}
+    spec:
+      serviceAccountName: phantom-controller
+      containers:
+      - name: controller
+        image: phantom/controller:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PHANTOM_ML_URL
+          value: "http://phantom-ml:8001"
+        - name: PREDICTION_HORIZON_SECONDS
+          value: "300"
+        - name: SCALE_CONFIDENCE_THRESHOLD
+          value: "0.75"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 256Mi}

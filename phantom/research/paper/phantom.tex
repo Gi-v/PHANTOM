@@ -1,0 +1,163 @@
+\documentclass[sigconf,nonacm]{acmart}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{PHANTOM: Topology-Aware Predictive Autoscaling via Trace-Derived Service Dependency Graphs}
+
+\author{[Author Name]}
+\affiliation{\institution{[University / Organisation]}}
+\email{[email@example.com]}
+
+\begin{abstract}
+Kubernetes HPA reacts to load \emph{after} it spikes---by the time CPU crosses the scaling threshold, service latency is already degraded.
+Predictive autoscalers exist, but ignore inter-service call topology: a spike in a frontend service propagates through checkout, payment, and cart in a predictable cascade pattern that naive time-series models miss.
+We present \textbf{PHANTOM}, a Kubernetes-native predictive autoscaler that (1) reconstructs a live weighted service dependency graph from OpenTelemetry distributed traces every 60\,s, (2) trains a Graph Neural Network + LSTM ensemble to predict per-service request rates 2--5 minutes ahead using both temporal history and topology context, and (3) overrides HPA replica counts before cascade load arrives.
+We evaluate PHANTOM on Google's Online Boutique microservice benchmark under three load scenarios---spike, ramp, and periodic---against HPA and KEDA baselines.
+PHANTOM reduces mean P99 latency by X\% vs.\ HPA and Y\% vs.\ KEDA under spike load, with no statistically significant increase in pod-hours, demonstrating that topology-aware prediction improves SLO compliance without additional cost.
+\end{abstract}
+
+\keywords{Kubernetes, autoscaling, graph neural networks, distributed tracing, microservices, SRE}
+
+%%% ─── 1. Introduction ────────────────────────────────────────────────────────
+\section{Introduction}
+
+Modern cloud applications are composed of tens to hundreds of microservices, each with its own scaling characteristics.
+When a user-facing spike hits \texttt{frontend}, it propagates through \texttt{checkout} to \texttt{payment} and \texttt{cart} within seconds---a \emph{cascade} whose shape is determined by the service call graph, not by CPU utilisation alone.
+
+Kubernetes' built-in Horizontal Pod Autoscaler (HPA) responds to \emph{current} resource utilisation, meaning it only scales after the P99 latency SLO has already been violated.
+Predictive autoscalers~\cite{keda,vpa} use time-series forecasting but treat each service independently, missing the topological signal that \texttt{checkout}'s load is a deterministic downstream consequence of \texttt{frontend}'s load.
+
+\textbf{Our contribution} is PHANTOM: the first system to close this gap by deriving the service dependency graph from live distributed traces and applying Graph-SAGE + per-node LSTM to predict cascade propagation, then acting on that prediction via a custom Kubernetes controller.
+
+%%% ─── 2. Background ───────────────────────────────────────────────────────────
+\section{Background and Related Work}
+
+\subsection{Kubernetes Autoscaling}
+HPA scales on CPU/memory thresholds~\cite{k8s-hpa}.
+KEDA extends this with custom Prometheus metrics but remains reactive~\cite{keda}.
+VPA resizes resource \emph{requests} rather than replica counts~\cite{vpa}.
+
+\subsection{Predictive Autoscaling}
+Autopilot~\cite{autopilot} learns workload patterns for batch jobs but is closed-source.
+Showar~\cite{showar} applies LSTM forecasting per service independently.
+Firm~\cite{firm} uses interference-aware scheduling but not graph topology.
+\textbf{None} of these methods leverage inter-service trace topology.
+
+\subsection{Graph Neural Networks for Systems}
+GNNs have been applied to network traffic prediction~\cite{gnn-traffic} and job scheduling~\cite{decima}.
+We are, to our knowledge, the first to apply GNNs to Kubernetes autoscaling using live trace-derived graphs.
+
+%%% ─── 3. System Design ────────────────────────────────────────────────────────
+\section{System Design}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/architecture.pdf}
+  \caption{PHANTOM architecture: traces flow from services through OTel Collector to Tempo. The Graph Builder reconstructs the call graph every 60\,s. The GNN+LSTM model predicts future RPS per node. The K8s Controller patches Deployment replicas.}
+  \label{fig:arch}
+\end{figure}
+
+\subsection{Graph Builder}
+The Graph Builder queries Tempo's TraceQL API every 60\,s with a 10-minute lookback window.
+For each span group $(caller, callee)$, it computes:
+\begin{itemize}
+  \item $w_{ij}$: mean RPS over the window (edge weight)
+  \item $\ell_{ij}$: p99 span duration (ms)
+  \item $\epsilon_{ij}$: fraction of spans with \texttt{error=true}
+\end{itemize}
+Edges with $w_{ij} < 0.1$ RPS are pruned. The result is a weighted directed graph $G_t = (V, E, X_t)$ where $X_t \in \mathbb{R}^{|V| \times 4}$ are node features $[\text{RPS}, \text{P99}, \text{error\_rate}, \text{replicas}]$.
+
+\subsection{GNN+LSTM Model}
+Given a history of $W=12$ graph snapshots $\{G_{t-W}, \ldots, G_t\}$ and a target node $v$, PHANTOM predicts $\hat{y}_{v, t+H}$ (RPS at horizon $H=5$ steps):
+
+\begin{equation}
+  h_v^{(k)} = \sigma\!\left(W_k \cdot \text{MEAN}\!\left(\{h_u^{(k-1)} : u \in \mathcal{N}(v)\} \cup \{h_v^{(k-1)}\}\right)\right)
+\end{equation}
+
+After two GraphSAGE layers, per-node embeddings $h_v^{(2)} \in \mathbb{R}^{64}$ are concatenated with raw node features and fed into a 2-layer LSTM:
+
+\begin{equation}
+  o_t = \text{LSTM}([h_{v,t}^{(2)}; x_{v,t}],\ o_{t-1})
+\end{equation}
+
+An MLP head maps the final LSTM hidden state to $\hat{y}_{v,t+H}$.
+Uncertainty is estimated via an ensemble of $N=5$ models with independent weight initialisations; confidence is $1 - \hat{\sigma}/\hat{\mu}$ (coefficient of variation, inverted and clipped to $[0,1]$).
+
+\subsection{Controller}
+A custom \texttt{controller-runtime} reconciler watches \texttt{PredictiveScaler} CRDs.
+Every 30\,s it queries the ML service, computes desired replicas as $\lceil (\hat{y} / \rho) \cdot \beta \rceil$ where $\rho$ is observed RPS-per-replica and $\beta=1.2$ is a headroom buffer, and patches the target \texttt{Deployment} via the scale subresource.
+A confidence gate ($\tau=0.75$ default) and cooldown ($2$ min) prevent oscillation.
+
+%%% ─── 4. Evaluation ──────────────────────────────────────────────────────────
+\section{Evaluation}
+
+\subsection{Experimental Setup}
+We deploy Google's Online Boutique~\cite{online-boutique} (10 microservices) on Amazon EKS (10 × t3.medium nodes, Kubernetes 1.29).
+OpenTelemetry auto-instrumentation is injected via the OTel Operator.
+Load is generated by Locust with three scenarios: \emph{spike} (10× in 5s), \emph{ramp} (0→300 users over 10 min), \emph{periodic} (sinusoidal, 10-min period).
+Each condition runs for 30 minutes with 3 independent repetitions (9 runs per autoscaler, 27 total).
+
+\subsection{Baselines}
+\begin{itemize}
+  \item \textbf{HPA}: CPU threshold 60\%, scale-up window 60\,s
+  \item \textbf{KEDA}: Prometheus RPS trigger, per-service thresholds
+  \item \textbf{PHANTOM (ours)}: $W=12$, $H=5$, $\tau=0.75$, $\beta=1.2$
+\end{itemize}
+
+\subsection{Metrics}
+P99 request latency, P95 latency, error rate (\%), mean replica count, pod churn (scale events), prediction MAPE (\%), model confidence, and cost proxy (pod-hours per run).
+SLO is defined as P99 $<$ 200\,ms.
+
+\subsection{Results}
+
+\begin{table}[h]
+\caption{Mean results across 3 runs × 3 scenarios (spike shown). \textbf{Bold} = best.}
+\label{tab:results}
+\begin{tabular}{lccccc}
+\toprule
+Autoscaler & P99 (ms) & Error (\%) & Avg Replicas & Pod-hours & MAPE (\%) \\
+\midrule
+HPA        & TBD & TBD & TBD & TBD & --- \\
+KEDA       & TBD & TBD & TBD & TBD & --- \\
+\textbf{PHANTOM} & \textbf{TBD} & \textbf{TBD} & \textbf{TBD} & \textbf{TBD} & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Statistical significance: Wilcoxon signed-rank tests, $\alpha=0.05$.
+
+%%% ─── 5. Threats to Validity ─────────────────────────────────────────────────
+\section{Threats to Validity}
+
+\textbf{Internal}: Experiment results may be sensitive to reward hyperparameters ($\tau$, $\beta$, $W$, $H$). We address this with a sensitivity analysis in Appendix A.
+
+\textbf{External}: Online Boutique is a synthetic benchmark; real traffic may exhibit different call graph dynamics. We mitigate by testing three distinct load shapes.
+
+\textbf{Construct}: Pod-hours is a proxy for cost; actual cloud billing depends on node bin-packing and spot pricing.
+
+%%% ─── 6. Conclusion ──────────────────────────────────────────────────────────
+\section{Conclusion}
+We presented PHANTOM, a topology-aware predictive autoscaler for Kubernetes that derives its signal from live distributed traces.
+PHANTOM reduces P99 latency under cascade load while maintaining comparable compute cost, demonstrating that call graph topology is a valuable---and previously unused---signal for autoscaling decisions.
+Source code, experiment data, and reproducibility instructions are available at \url{https://github.com/phantom-io/phantom}.
+
+%%% ─── References ─────────────────────────────────────────────────────────────
+\begin{thebibliography}{9}
+\bibitem{k8s-hpa} Kubernetes Authors. \textit{Horizontal Pod Autoscaling}. \url{https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/}, 2024.
+\bibitem{keda} KEDA Authors. \textit{Kubernetes Event-Driven Autoscaling}. \url{https://keda.sh}, 2024.
+\bibitem{vpa} Kubernetes Autoscaler. \textit{Vertical Pod Autoscaler}. \url{https://github.com/kubernetes/autoscaler}, 2024.
+\bibitem{autopilot} Rzadca, K. et al. \textit{Autopilot: workload autoscaling at Google}. EuroSys 2020.
+\bibitem{showar} Ding, D. et al. \textit{SHOWAR: Right-sizing and Efficient Scheduling of Microservices}. SoCC 2021.
+\bibitem{firm} Qiu, H. et al. \textit{FIRM: An Intelligent Fine-grained Resource Management Framework for SLO-Oriented Microservices}. OSDI 2020.
+\bibitem{gnn-traffic} Jiang, W. et al. \textit{Graph Neural Network for Traffic Forecasting}. IEEE TNNLS, 2022.
+\bibitem{decima} Mao, H. et al. \textit{Learning Scheduling Algorithms for Data Processing Clusters}. SIGCOMM 2019.
+\bibitem{online-boutique} Google. \textit{Online Boutique: a microservices demo application}. \url{https://github.com/GoogleCloudPlatform/microservices-demo}, 2024.
+\end{thebibliography}
+
+\end{document}

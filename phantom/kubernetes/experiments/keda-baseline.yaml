@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: phantom-config
+  namespace: phantom
+data:
+  PHANTOM_ENABLED: "false"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: frontend-keda
+  namespace: phantom
+spec:
+  scaleTargetRef: {name: frontend}
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  cooldownPeriod: 120
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: frontend_rps
+      query: sum(rate(http_requests_total{app="frontend",namespace="phantom"}[1m]))
+      threshold: "50"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: checkout-keda
+  namespace: phantom
+spec:
+  scaleTargetRef: {name: checkout}
+  minReplicaCount: 2
+  maxReplicaCount: 15
+  cooldownPeriod: 120
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: checkout_rps
+      query: sum(rate(http_requests_total{app="checkout",namespace="phantom"}[1m]))
+      threshold: "30"

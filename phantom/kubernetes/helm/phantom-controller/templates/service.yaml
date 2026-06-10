@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "phantom-controller.fullname" . }}-metrics
+  labels:
+    app: phantom-controller
+spec:
+  selector:
+    app: phantom-controller
+  ports:
+  - name: metrics
+    port: {{ .Values.metrics.port }}
+    targetPort: {{ .Values.metrics.port }}
+  - name: health
+    port: 8081
+    targetPort: 8081

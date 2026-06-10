@@ -1,0 +1,9 @@
+apiVersion: v2
+name: phantom-controller
+description: PHANTOM Predictive Autoscaler Controller
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords: [kubernetes, autoscaling, ml, prediction]
+maintainers:
+  - name: phantom-io

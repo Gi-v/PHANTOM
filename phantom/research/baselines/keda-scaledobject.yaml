@@ -1,0 +1,73 @@
+---
+# KEDA baseline — event-driven scaling on Prometheus RPS metric
+# Used as Baseline B in research experiments (reactive, metric-driven, no prediction)
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: frontend-keda-baseline
+  namespace: phantom
+  labels:
+    experiment: baseline
+    autoscaler: keda
+spec:
+  scaleTargetRef:
+    name: frontend
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  cooldownPeriod: 120
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: http_requests_per_second
+      query: sum(rate(http_requests_total{app="frontend",namespace="phantom"}[1m]))
+      threshold: "50"
+      activationThreshold: "5"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: checkout-keda-baseline
+  namespace: phantom
+  labels:
+    experiment: baseline
+    autoscaler: keda
+spec:
+  scaleTargetRef:
+    name: checkout
+  minReplicaCount: 2
+  maxReplicaCount: 15
+  cooldownPeriod: 120
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: http_requests_per_second
+      query: sum(rate(http_requests_total{app="checkout",namespace="phantom"}[1m]))
+      threshold: "30"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: payment-keda-baseline
+  namespace: phantom
+  labels:
+    experiment: baseline
+    autoscaler: keda
+spec:
+  scaleTargetRef:
+    name: payment
+  minReplicaCount: 3
+  maxReplicaCount: 12
+  cooldownPeriod: 180
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: http_requests_per_second
+      query: sum(rate(http_requests_total{app="payment",namespace="phantom"}[1m]))
+      threshold: "20"

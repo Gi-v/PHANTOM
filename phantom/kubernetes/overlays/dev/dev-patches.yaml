@@ -1,0 +1,14 @@
+# Scale down for dev
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phantom-ml
+spec:
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-builder
+spec:
+  replicas: 1

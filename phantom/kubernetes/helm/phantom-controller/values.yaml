@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  repository: phantom/controller
+  tag: latest
+  pullPolicy: IfNotPresent
+
+phantomML:
+  url: "http://phantom-ml:8001"
+  predictionHorizonSeconds: 300
+  confidenceThreshold: "0.75"
+
+leaderElection:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: true
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: phantom-controller

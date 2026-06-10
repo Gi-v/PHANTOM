@@ -1,0 +1,52 @@
+grafana:
+  adminPassword: phantom
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki-stack:3100
+      access: proxy
+    - name: Tempo
+      type: tempo
+      url: http://tempo:3200
+      access: proxy
+      jsonData:
+        tracesToLogs:
+          datasourceUid: loki
+        serviceMap:
+          datasourceUid: prometheus
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: phantom
+          folder: PHANTOM
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/phantom
+  dashboards:
+    phantom:
+      phantom-main:
+        json: |
+          { "title": "PHANTOM" }
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    scrapeInterval: 15s
+    additionalScrapeConfigs:
+      - job_name: phantom-services
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [phantom]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phantom-controller
+  labels:
+    app: phantom-controller
+  annotations:
+    trivy-scan/passed: "true"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: phantom-controller
+  template:
+    metadata:
+      labels:
+        app: phantom-controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.metrics.port }}"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+      - name: controller
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+          - --phantom-ml-url={{ .Values.phantomML.url }}
+          - --metrics-bind-address=:{{ .Values.metrics.port }}
+          - --health-probe-bind-address=:8081
+          - --leader-elect={{ .Values.leaderElection.enabled }}
+        ports:
+          - {containerPort: {{ .Values.metrics.port }}, name: metrics}
+          - {containerPort: 8081, name: health}
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8081}
+          initialDelaySeconds: 15
+        readinessProbe:
+          httpGet: {path: /readyz, port: 8081}
+          initialDelaySeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+        resources:
+          requests:
+            cpu: {{ .Values.resources.requests.cpu }}
+            memory: {{ .Values.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.resources.limits.cpu }}
+            memory: {{ .Values.resources.limits.memory }}

@@ -1,0 +1,84 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: phantom-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus
+spec:
+  groups:
+    - name: phantom.slo
+      interval: 30s
+      rules:
+        - alert: HighP99Latency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{namespace="online-boutique"}[5m]))
+              by (le, service)
+            ) > 0.2
+          for: 2m
+          labels:
+            severity: warning
+            team: phantom
+          annotations:
+            summary: "P99 latency > 200ms for {{ $labels.service }}"
+            description: "P99={{ $value | humanizeDuration }} — PHANTOM may need recalibration"
+
+        - alert: SLOViolation
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{namespace="online-boutique"}[5m]))
+              by (le, service)
+            ) > 0.5
+          for: 1m
+          labels:
+            severity: critical
+            team: phantom
+          annotations:
+            summary: "SLO VIOLATION: P99 > 500ms for {{ $labels.service }}"
+
+    - name: phantom.prediction
+      rules:
+        - alert: PredictionMAPEHigh
+          expr: phantom_prediction_mape > 0.25
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PHANTOM prediction MAPE {{ $value | humanizePercentage }} — retraining recommended"
+
+        - alert: MLServerDown
+          expr: up{job="phantom-ml-server"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PHANTOM ML server is down — falling back to reactive HPA"
+
+        - alert: PredictiveScalerStale
+          expr: time() - phantom_last_prediction_timestamp_seconds > 120
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No prediction from PHANTOM for >2min on {{ $labels.deployment }}"
+
+    - name: phantom.cascade
+      rules:
+        - alert: CascadeDetected
+          expr: |
+            sum(rate(http_requests_total{namespace="online-boutique", status=~"5.."}[2m]))
+            by (service) > 10
+          for: 30s
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cascade failure pattern on {{ $labels.service }} — PHANTOM pre-scaling"
+
+        - alert: GraphTopologyChanged
+          expr: phantom_service_graph_edge_count != phantom_service_graph_edge_count offset 10m
+          for: 1m
+          labels:
+            severity: info
+          annotations:
+            summary: "Service dependency graph topology changed — model retraining triggered"

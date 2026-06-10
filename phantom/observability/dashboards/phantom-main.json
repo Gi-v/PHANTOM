@@ -1,0 +1,171 @@
+{
+  "title": "PHANTOM — Predictive Autoscaler",
+  "uid": "phantom-main",
+  "tags": ["phantom", "autoscaling", "prediction"],
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Prediction vs Actual RPS",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "phantom_predicted_rps{service=~\"$service\"}",
+          "legendFormat": "Predicted — {{service}}"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"phantom\",app=~\"$service\"}[1m])) by (app)",
+          "legendFormat": "Actual — {{app}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"lineWidth": 2},
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byNamePattern", "options": "Predicted.*"},
+            "properties": [{"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Model Confidence",
+      "type": "gauge",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "avg(phantom_model_confidence{service=~\"$service\"})", "legendFormat": "Confidence"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 1,
+          "thresholds": {
+            "steps": [
+              {"value": 0, "color": "red"},
+              {"value": 0.6, "color": "yellow"},
+              {"value": 0.8, "color": "green"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Pre-scale Actions (last 1h)",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "increase(phantom_scale_actions_total[1h])", "legendFormat": "Scale Actions"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Replica Count: Predicted vs Actual",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "phantom_target_replicas{deployment=~\"$service\"}",
+          "legendFormat": "PHANTOM Target — {{deployment}}"
+        },
+        {
+          "expr": "kube_deployment_spec_replicas{namespace=\"phantom\",deployment=~\"$service\"}",
+          "legendFormat": "Actual Replicas — {{deployment}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "P99 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"phantom\"}[1m])) by (le, app)) * 1000",
+          "legendFormat": "P99 — {{app}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [{"value": 0, "color": "green"}, {"value": 200, "color": "yellow"}, {"value": 500, "color": "red"}]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Prediction MAPE (%)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "phantom_prediction_mape * 100",
+          "legendFormat": "MAPE — {{deployment}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [{"value": 0, "color": "green"}, {"value": 15, "color": "yellow"}, {"value": 30, "color": "red"}]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Cost Delta: PHANTOM vs HPA (USD/hr estimate)",
+      "description": "Negative = PHANTOM cheaper (fewer unnecessary pods)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 4},
+      "targets": [
+        {
+          "expr": "(sum(kube_deployment_spec_replicas{namespace=\"phantom\"}) - sum(phantom_target_replicas)) * 0.048",
+          "legendFormat": "Savings $/hr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": {
+            "steps": [{"value": -10, "color": "red"}, {"value": 0, "color": "yellow"}, {"value": 0.1, "color": "green"}]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "SLO Violation Rate",
+      "type": "timeseries",
+      "gridPos": {"x": 8, "y": 16, "w": 16, "h": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"phantom\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{namespace=\"phantom\"}[5m])) * 100",
+          "legendFormat": "Error Rate %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "max": 100, "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "red"}]}}
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "query": "label_values(phantom_predicted_rps, service)",
+        "multi": true,
+        "includeAll": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      }
+    ]
+  }
+}

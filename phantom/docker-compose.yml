@@ -1,0 +1,100 @@
+version: '3.9'
+
+services:
+
+  # ── Observability ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: phantom
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./observability/dashboards:/var/lib/grafana/dashboards:ro
+      - ./observability/grafana-provisioning:/etc/grafana/provisioning:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+  loki:
+    image: grafana/loki:2.9.6
+    ports: ["3100:3100"]
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+    ports:
+      - "3200:3200"   # HTTP API
+      - "4317:4317"   # OTLP gRPC
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    volumes:
+      - ./observability/otel/collector.yml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Collector metrics
+    depends_on: [tempo, loki, prometheus]
+
+  # ── PHANTOM services ─────────────────────────────────────────────────────────
+  graph-builder:
+    build:
+      context: ./ml/graph_builder
+      dockerfile: Dockerfile
+    environment:
+      TEMPO_URL: http://tempo:3200
+      PROMETHEUS_URL: http://prometheus:9090
+      REBUILD_INTERVAL: "60"
+    ports: ["8000:8000"]
+    depends_on: [tempo, prometheus]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  phantom-ml:
+    build:
+      context: ./ml
+      dockerfile: gnn_lstm/Dockerfile
+    environment:
+      GRAPH_BUILDER_URL: http://graph-builder:8000
+      MODEL_CHECKPOINT: /models/phantom_latest.pt
+      PREDICTION_HORIZON: "300"
+      HISTORY_WINDOW: "12"
+      MODEL_N_ENSEMBLE: "5"
+    volumes:
+      - phantom-models:/models
+    ports: ["8001:8001"]
+    depends_on: [graph-builder]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Dashboard ────────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      PHANTOM_ML_URL: http://phantom-ml:8001
+    ports: ["3001:3001"]
+    depends_on: [grafana, phantom-ml]
+
+volumes:
+  phantom-models:

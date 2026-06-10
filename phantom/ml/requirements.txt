@@ -1,0 +1,24 @@
+# Core ML
+torch==2.3.0
+torch-geometric==2.5.3
+scikit-learn==1.4.2
+numpy==1.26.4
+pandas==2.2.2
+
+# API serving
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+httpx==0.27.0
+pydantic==2.7.1
+
+# Graph
+networkx==3.3
+
+# Observability
+prometheus-client==0.20.0
+structlog==24.1.0
+
+# Dev / training
+matplotlib==3.9.0
+tensorboard==2.17.0
+tqdm==4.66.4

@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: phantom
+bases:
+  - ../../base
+patches:
+  - path: dev-patches.yaml
+images:
+  - name: phantom/controller
+    newTag: latest
+  - name: phantom/ml-server
+    newTag: latest
+  - name: phantom/graph-builder
+    newTag: latest
+configMapGenerator:
+  - name: phantom-config
+    literals:
+      - ENV=dev
+      - LOG_LEVEL=debug
+      - PREDICTION_HORIZON=300

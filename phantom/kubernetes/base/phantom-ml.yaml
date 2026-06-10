@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phantom-ml
+  annotations:
+    trivy-scan/passed: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: phantom-ml}
+  template:
+    metadata:
+      labels: {app: phantom-ml}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: phantom-ml
+        image: phantom/ml-server:latest
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8001}]
+        env:
+        - name: GRAPH_BUILDER_URL
+          value: "http://graph-builder:8000"
+        - name: MODEL_CHECKPOINT
+          value: "/models/phantom_latest.pt"
+        - name: PREDICTION_HORIZON
+          value: "300"
+        volumeMounts:
+        - name: models
+          mountPath: /models
+        resources:
+          requests: {cpu: 500m, memory: 1Gi}
+          limits: {cpu: 2, memory: 4Gi}
+        livenessProbe:
+          httpGet: {path: /health, port: 8001}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet: {path: /health, port: 8001}
+          initialDelaySeconds: 15
+          periodSeconds: 5
+      volumes:
+      - name: models
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phantom-ml
+spec:
+  selector: {app: phantom-ml}
+  ports: [{port: 8001, targetPort: 8001}]

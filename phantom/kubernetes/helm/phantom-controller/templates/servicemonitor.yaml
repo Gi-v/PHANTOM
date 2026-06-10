@@ -1,0 +1,17 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "phantom-controller.fullname" . }}
+  labels:
+    app: phantom-controller
+    release: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: phantom-controller
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+{{- end }}

@@ -1,0 +1,21 @@
+- rule: ML Model File Modified at Runtime
+  desc: ML model checkpoint was modified unexpectedly
+  condition: >
+    open_write and
+    container.label.app = "phantom-ml" and
+    fd.name startswith "/models/"
+  output: >
+    ML model file modified (file=%fd.name container=%container.name)
+  priority: CRITICAL
+  tags: [phantom, ml, integrity]
+
+- rule: Unexpected Exec in Controller
+  desc: Shell or kubectl spawned in controller pod
+  condition: >
+    spawned_process and
+    container.label.app = "phantom-controller" and
+    proc.name in (sh, bash, kubectl, curl, wget)
+  output: >
+    Unexpected process in phantom-controller (proc=%proc.name cmdline=%proc.cmdline)
+  priority: ERROR
+  tags: [phantom, exec]

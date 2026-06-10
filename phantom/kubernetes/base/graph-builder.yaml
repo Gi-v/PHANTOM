@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-builder
+  annotations:
+    trivy-scan/passed: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: graph-builder}
+  template:
+    metadata:
+      labels: {app: graph-builder}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+      - name: graph-builder
+        image: phantom/graph-builder:latest
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8000}]
+        env:
+        - name: TEMPO_URL
+          value: "http://tempo:3200"
+        - name: PROMETHEUS_URL
+          value: "http://prometheus:9090"
+        - name: REBUILD_INTERVAL
+          value: "60"
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graph-builder
+spec:
+  selector: {app: graph-builder}
+  ports: [{port: 8000, targetPort: 8000}]
